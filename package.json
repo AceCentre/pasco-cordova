@@ -1,0 +1,31 @@
+{
+    "name": "com.aminbros.audscancordova",
+    "displayName": "AUDScan",
+    "version": "1.0.0",
+    "description": "Auditory Scanning, Intended to be cross-platform",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "Apache Cordova Team",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "audscan-cordova-plugin": "git+https://github.com/hosseinamin/audscan-cordova-plugin.git",
+        "cordova-ios": "^4.4.0",
+        "cordova-plugin-compat": "^1.1.0",
+        "cordova-plugin-device": "^1.1.6",
+        "cordova-plugin-file": "^4.3.3",
+        "cordova-plugin-whitelist": "^1.3.2"
+    },
+    "cordova": {
+        "plugins": {
+            "cordova-plugin-whitelist": {},
+            "cordova-plugin-file": {},
+            "audscan-cordova-plugin": {},
+            "cordova-plugin-device": {}
+        },
+        "platforms": [
+            "ios"
+        ]
+    }
+}
