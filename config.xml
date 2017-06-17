@@ -8,6 +8,7 @@
         Hossein Amin
     </author>
     <preference name="KeyboardDisplayRequiresUserAction" value="false" />
+    <preference name="DisableOverscroll" value="true" />
     <content src="index.html" />
     <access origin="*" />
     <allow-intent href="http://*/*" />

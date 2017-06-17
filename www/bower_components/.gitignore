@@ -1,0 +1,17 @@
+*
+!.gitignore
+!underscore/
+!underscore/underscore-min.js
+!showdown/
+!showdown/dist/
+!showdown/dist/showdown.min.js
+!bootstrap/
+!bootstrap/dist/
+!bootstrap/dist/js/
+!bootstrap/dist/css
+!bootstrap/dist/css/bootstrap.min.css
+!bootstrap/dist/js/bootstrap.min.js
+!jquery/
+!jquery/dist/
+!jquery/dist/jquery.min.js
+
