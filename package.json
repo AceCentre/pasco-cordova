@@ -1,8 +1,8 @@
 {
     "name": "com.aminbros.audscancordova",
-    "displayName": "AUDScan",
+    "displayName": "pasco",
     "version": "1.0.0",
-    "description": "Auditory Scanning, Intended to be cross-platform",
+    "description": "Phrase Auditory Scanning COmmunicator. Intended to be cross-platform",
     "main": "index.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1"
