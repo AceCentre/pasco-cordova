@@ -12,10 +12,10 @@ window.default_config = 'config.json';
 window.default_tree = 'tree.md';
 
 function initialize_app() {
+  var replaceFileKeys = ['default_config', 'default_tree'];
   // for cordova
   if(window.cordova) {
-    var replaceFileKeys = ['default_config', 'default_tree'],
-        promises = [];
+    var promises = [];
     _.each(replaceFileKeys, function(key) {
       var path = window[key],
           newpath = 'documentsDirectory:' + window[key];
@@ -39,7 +39,29 @@ function initialize_app() {
     });
     return Promise.all(promises);
   } else {
-    return Promise.resolve();
+    function new_read(key) {
+      var result = localStorage.getItem('file_'+key);
+      if(result == null) {
+        return read_file(key);
+      } else {
+        return Promise.resolve(result);
+      }
+    }
+    function new_write(key, data) {
+      localStorage.setItem('file_'+key, data);
+      return Promise.resolve();
+    }
+    window.get_file_json = function(key) {
+      return new_read(key) 
+        .then(function(data) {
+          var config = JSON.parse(data);
+          if(!config)
+            throw new Error("No input json!, " + key);
+          return config;
+        });
+    }
+    window.get_file_data = new_read
+    window.set_file_data = new_write
   }
 }
 
@@ -155,6 +177,36 @@ function handle_error(err) {
   }
 }
 
+function delete_file(url, options) {
+  options = options || { method: 'DELETE' }
+  // cordova specific
+  if(!/^(https?):\/\//.test(url) && window.cordova &&
+     window.resolveLocalFileSystemURL) {
+    return new Promise(function(resolve, reject) {
+      var parts = url.split(':')
+      var newurl;
+      if(parts.length > 1 && parts[0] in cordova.file) {
+        newurl = cordova.file[parts[0]] + parts.slice(1).join(':');
+      } else {
+        newurl = cordova.file.applicationDirectory + "www/" + url;
+      }
+      function onEntry(entry) {
+        entry.remove(resolve, onFail);
+      }
+      function onFail(err) {
+        console.error(err);
+        reject("Fail to delete `" + newurl + "` -- " + err+'')
+      }
+      window.resolveLocalFileSystemURL(newurl, onEntry, function() { resolve(); });
+    });
+  } else {
+    // post otherwise
+    if(!options.method)
+      options.method = 'DELETE'
+    return read_file(url, options);
+  }  
+}
+
 function write_file(url, data, options) {
   options = options || { method: 'POST' }
   // cordova specific
@@ -204,6 +256,8 @@ function write_file(url, data, options) {
   } else {
     // post otherwise
     options.data = data
+    if(!options.method)
+      options.method = 'POST'
     return read_file(url, options);
   }
 }
@@ -256,6 +310,13 @@ function read_file(url, options) {
   });
 }
 
+function _theinput_refocus() {
+  var theinput = this;
+  setTimeout(function() {
+    theinput.focus();
+  }, 100);
+}
+
 function keyevents_needs_theinput() {
   return /iP(hone|od|ad)/.test(navigator.userAgent);
 }
@@ -263,6 +324,7 @@ function keyevents_needs_theinput() {
 function keyevents_handle_theinput() {
   var theinputwrp = document.getElementById('theinput-wrp');
   var theinput = document.getElementById('theinput');
+  var docscroll_handler;
   function preventdefault(evt) {
     evt.preventDefault();
   }
@@ -271,12 +333,22 @@ function keyevents_handle_theinput() {
     theinput.focus();
     theinput.addEventListener('keydown', preventdefault, false);
     theinput.addEventListener('keyup', preventdefault, false);
-    document.addEventListener('scroll', function() {
+    document.addEventListener('scroll', docscroll_handler = function() {
       theinputwrp.style.top = window.scrollY + 'px';
       theinputwrp.style.left = window.scrollX + 'px';
     }, false);
+    window.keyevents_handle_theinput_off = function() {
+      theinput.removeEventListener('blur', _theinput_refocus, false);
+      theinput.blur();
+      theinput.removeEventListener('keydown', preventdefault, false);
+      theinput.removeEventListener('keyup', preventdefault, false);
+      document.removeEventListener('scroll', docscroll_handler, false);
+      window.keyevents_handle_theinput_off = function() { } //dummy func
+    }
   }
 }
+
+window.keyevents_handle_theinput_off = function() { } // dummy func
 
 function SpeakUnit() {
   this._alt_finish_queue = [];
@@ -320,7 +392,7 @@ proto.init = function() {
           script.onerror = function() {
             reject("Could not load responsivevoice code");
           };
-          script.src = "http://code.responsivevoice.org/responsivevoice.js";
+          script.src = "//code.responsivevoice.org/responsivevoice.js";
           document.body.appendChild(script);
         });
       }
@@ -439,9 +511,13 @@ proto.get_voices = function() {
 function read_json(url, options) {
   return read_file(url, options)
     .then(function(data) {
-      var config = JSON.parse(data);
-      if(!config)
-        throw new Error("No input config!");
-      return config;
+      var data = JSON.parse(data);
+      if(!data)
+        throw new Error("No input json!, " + url);
+      return data;
     });
 }
+
+window.get_file_json = read_json
+window.get_file_data = read_file
+window.set_file_data = write_file
