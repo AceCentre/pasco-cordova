@@ -9,6 +9,27 @@ Promise.all([
     }, false);
   })
 ])
+  .then(function() {
+    // some hooks
+    var el = document.querySelector('#debug-clear-storage')
+    if(el) {
+      el.addEventListener('click', function() {
+        // for cordova
+        if(window.cordova) {
+          Promise.all([
+            delete_file(default_config),
+            delete_file(default_tree)
+          ])
+            .then(function() {
+              location.reload();
+            })
+            .catch(handle_error);
+        } else {
+          localStorage.clear()
+        }
+      }, false);
+    }
+  })
   .then(initialize_app)
   .then(function() {
     speaku = new SpeakUnit()
@@ -27,9 +48,45 @@ Promise.all([
       .then(function(_tree) { tree = _tree; });
   })
   .then(function() {
-    // iOS needs this
-    if(keyevents_needs_theinput())
-      keyevents_handle_theinput();
+    // prepare onscreen_navigation -> boolean
+    // theinput thing, iOS needs this
+    return new Promise(function(resolve, reject) {
+      if(keyevents_needs_theinput() && speaku && speaku.api &&
+         config.onscreen_navigation == 'auto') {
+        keyevents_handle_theinput();
+        setTimeout(function() { // give time to bring keyboard
+          speaku.api.is_software_keyboard_visible()
+            .then(function(issoft) {
+              if(!('_onscreen_navigation' in config))
+                config._onscreen_navigation = issoft;
+              if(issoft) {
+                keyevents_handle_theinput_off();
+              }
+              _is_software_keyboard_visible = issoft;
+            })
+            .then(resolve, reject);
+        }, 1000);
+      } else {
+        // assuming keyboard is available, then auto is false
+        if(!('_onscreen_navigation' in config))
+          config._onscreen_navigation = config.onscreen_navigation == 'enable';
+        if(keyevents_needs_theinput() && !config._onscreen_navigation) {
+          keyevents_handle_theinput();
+          setTimeout(function() {
+            _update_software_keyboard().then(resolve, reject)
+          }, 1000)
+        } else {
+          resolve()
+        }
+      }
+    });
+  })
+  .then(function() {
+    // deal with on-screen navigation
+    var elem = document.querySelector('#navbtns-wrp');
+    if(elem && config._onscreen_navigation) {
+      elem.classList.add('navbtns-enable');
+    }
   })
   .then(start)
   .catch(handle_error);
@@ -49,12 +106,20 @@ var _alt_voice_rate_by_name = { 'default': 1.0, 'max': 2.0, 'min': 0.5 },
       "tree_go_previous": _tree_go_previous, "tree_go_next": _tree_go_next,
     },
     _debug_keys = {
-      80: { func: function() { // P (toggle play)
+      '80': { func: function() { // P (toggle play)
         if(state._stopped) {
           state = renew_state(state)
           start(state);
         } else {
           stop();
+        }
+      } },
+      '190': { func: function(ev) { // . dot (toggle debug mode)
+        state.debug_mode = !state.debug_mode
+        if(state.debug_mode) {
+          document.body.classList.add('debug-mode')
+        } else {
+          document.body.classList.remove('debug-mode')
         }
       } }
     };
@@ -72,7 +137,6 @@ window.addEventListener('keydown', function(ev) {
       ret.catch(handle_error);
   }
 }, false);
-
 
 function start(_state) {
   // start if _state is given acts as continue
@@ -97,6 +161,9 @@ function start(_state) {
   tree_element.addEventListener('x-mode-change', _on_mode_change, false);
   window.addEventListener('keydown', _on_keydown, false);
   window.addEventListener('resize', _tree_needs_resize, false);
+  var tmp = document.querySelector('#navbtns')
+  if(tmp && config._onscreen_navigation)
+    tmp.addEventListener('click', _on_navbtns_click, false)
   if(state.mode == 'auto') {
     _state.auto_next_start = auto_next
     _state.auto_next_dead = false
@@ -164,6 +231,9 @@ function stop() {
   }
   window.removeEventListener('keydown', _on_keydown, false);
   window.removeEventListener('resize', _tree_needs_resize, false);
+  var tmp = document.querySelector('#navbtns')
+  if(tmp && config._onscreen_navigation)
+    tmp.removeEventListener('click', _on_navbtns_click, false)
   _before_new_move(); // stop speech and highlights
   if(state._active_timeout) {
     clearTimeout(state._active_timeout);
@@ -176,12 +246,6 @@ function _on_mode_change() {
   stop();
   state = renew_state(state)
   start(state);
-}
-function _theinput_refocus() {
-  var theinput = this;
-  setTimeout(function() {
-    theinput.focus();
-  }, 100);
 }
 
 function renew_state(_state) {
@@ -197,11 +261,29 @@ function _clean_state(_state) {
 
 function _update_software_keyboard() {
   if(speaku && speaku.api) {
-    speaku.api.is_software_keyboard_visible()
+    return speaku.api.is_software_keyboard_visible()
       .then(function(v) { _is_software_keyboard_visible = v; });
   }
+  return Promise.resolve();
 }
 
+function _on_navbtns_click(ev) {
+  var elem = ev.target;
+  switch(elem.id) {
+  case 'nav-upbtn':
+    _tree_go_previous();
+    break;
+  case 'nav-downbtn':
+    _tree_go_next();
+    break;
+  case 'nav-leftbtn':
+    _tree_go_out();
+    break;
+  case 'nav-rightbtn':
+    _tree_go_in();
+    break;
+  }
+}
 
 function _on_keydown(down_ev) {
   curtime = new Date().getTime()
@@ -387,7 +469,7 @@ function _scan_move(node) {
   node = node || _get_current_node();
   var moveobj = _new_move_init(node)
   moveobj.steps.push(_move_sub_highlight.bind(node))
-  moveobj.steps.push(_move_sub_speak.bind(node, config.auditory_voice_options))
+  moveobj.steps.push(_move_sub_speak.bind(node, config.auditory_cue_voice_options))
   _before_new_move()
   moveobj.node.dom_element.dispatchEvent(new CustomEvent("x-new-move"));
   return _new_move_start(moveobj);
@@ -395,7 +477,7 @@ function _scan_move(node) {
 
 function _cue_move(node, cuenode, delay) {
   var moveobj = _new_move_init(node || cuenode)
-  moveobj.steps.push(_move_sub_speak.bind(cuenode, config.auditory_cue_voice_options))
+  moveobj.steps.push(_move_sub_speak.bind(cuenode, config.auditory_main_voice_options))
   if(node) {
     moveobj.steps.push(function() {
       _before_new_move()
@@ -410,7 +492,7 @@ function _cue_move(node, cuenode, delay) {
   }
   moveobj.steps.push(un_can_move)
   if(node) {
-    moveobj.steps.push(_move_sub_speak.bind(node, config.auditory_voice_options))
+    moveobj.steps.push(_move_sub_speak.bind(node, config.auditory_cue_voice_options))
   }
   speaku.stop_speaking();
   state.can_move = false;
@@ -504,7 +586,7 @@ function _tree_go_in() {
       if(atree.txt_dom_element)
         atree.txt_dom_element.classList.add('selected' || config.selected_class);
       // speak it
-      return speaku.start_speaking(atree.text, config.auditory_cue_voice_options)
+      return speaku.start_speaking(atree.text, config.auditory_main_voice_options)
         .then(function(hdl) {
           return speaku.speak_finish(hdl).then(function() {
             return speaku.utterance_release(hdl);
@@ -547,7 +629,6 @@ function _tree_go_previous() {
 function _tree_go_next() {
   if(!state.can_move)
     return Promise.resolve();
-  console.log("goto next")
   var position = _get_current_position();
   position.index += 1;
   if(position.index >= position.tree.nodes.length) {
@@ -561,7 +642,7 @@ function _tree_go_next() {
 
 function load_config(fn) {
   // ready to start, load config
-  return read_json(fn)
+  return get_file_json(fn)
     .then(function(config) {
       function keys_from_config(mode, _default) {
         return typeof config[mode + '_keys'] == 'object' ?
@@ -621,7 +702,7 @@ function load_tree(tree_element, fn) {
     tree_element.innerText = "Tree given in config";
     return Promise.resolve();
   }
-  return read_file(fn)
+  return get_file_data(fn)
     .then(function(data) {
       var html_data = new showdown.Converter().makeHtml(data);
       html_data = sanitizeHtml(html_data, {
