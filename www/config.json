@@ -1,9 +1,11 @@
 {
+  "theme": "light",
   "mode": "switch",
   "onscreen_navigation": "auto",
   "ignore_second_hits_time": 100,
   "ignore_key_release_time": 50,
   "auto_next_delay": 200,
+  "auto_next_first_run_delay": 0,
   "auto_next_recycle_delay": 0,
   "auto_next_loops": 3,
   "auto_next_atfirst_delay": 1000,
@@ -19,6 +21,13 @@
     "volume": 0.5,
     "rate": "default",
     "rateMul": 1.0,
+    "alt_voiceId": "UK English Female",
+    "pitch": 1.0
+  },
+  "auditory_cue_first_run_voice_options": {
+    "volume": 1.0,
+    "rate": "default",
+    "rateMul": 1.5,
     "alt_voiceId": "UK English Female",
     "pitch": 1.0
   },
@@ -49,5 +58,6 @@
     "52": { "func": "tree_go_in", "comment": "num 4" }
   },
   "style": [ ],
-  "highlight_behavior": "center"
+  "highlight_behavior": "center",
+  "tree_content_size_percentage": 100
 }
