@@ -18,11 +18,10 @@ function initialize_app() {
     var promises = [];
     _.each(replaceFileKeys, function(key) {
       var path = window[key],
-          newpath = 'documentsDirectory:' + window[key];
+          newpath = 'cdvfile://localhost/persistent/' + window[key];
       promises.push(
         new Promise(function(resolve, reject) {
-          window.resolveLocalFileSystemURL(
-            cordova.file.documentsDirectory + path, resolve, continue_proc);
+          window.resolveLocalFileSystemURL(newpath, resolve, continue_proc);
           function continue_proc(err) {
             // if not found
             read_file(path)
@@ -118,7 +117,7 @@ function parse_dom_tree(el, continue_at, tree) {
   continue_at = continue_at || { i: 0 };
   tree = tree || { level: 0, meta: {}, _more_meta: {} };
   tree.nodes = tree.nodes || [];
-  for(var len = el.childNodes.length; continue_at.i < len; ++continue_at.i) {
+  for(var len = el.childNodes.length; continue_at.i < len; continue_at.i++) {
     var cnode = el.childNodes[continue_at.i],
         match;
     if(cnode.nodeType == Node.ELEMENT_NODE) {
@@ -158,7 +157,7 @@ function parse_dom_tree(el, continue_at, tree) {
       } if(cnode.nodeName == 'META') {
         var thenode = tree.nodes.length > 0 ?
                       tree.nodes[tree.nodes.length - 1] : tree;
-        for(var i = 0, len = cnode.attributes.length; i < len; ++i) {
+        for(var i = 0, xlen = cnode.attributes.length; i < xlen; ++i) {
           var attr = cnode.attributes[i];
           if(attr.name.indexOf('data-') == 0) {
             thenode.meta[attr.name.substr(5)] = attr.value;
@@ -203,22 +202,16 @@ function delete_file(url, options) {
   // cordova specific
   if(!/^(https?):\/\//.test(url) && window.cordova &&
      window.resolveLocalFileSystemURL) {
+    url = _cordova_fix_url(url)
     return new Promise(function(resolve, reject) {
-      var parts = url.split(':')
-      var newurl;
-      if(parts.length > 1 && parts[0] in cordova.file) {
-        newurl = cordova.file[parts[0]] + parts.slice(1).join(':');
-      } else {
-        newurl = cordova.file.applicationDirectory + "www/" + url;
-      }
       function onEntry(entry) {
         entry.remove(resolve, onFail);
       }
       function onFail(err) {
         console.error(err);
-        reject("Fail to delete `" + newurl + "` -- " + err+'')
+        reject("Fail to delete `" + url + "` -- " + err+'')
       }
-      window.resolveLocalFileSystemURL(newurl, onEntry, function() { resolve(); });
+      window.resolveLocalFileSystemURL(url, onEntry, function(){ resolve(); });
     });
   } else {
     // post otherwise
@@ -234,16 +227,10 @@ function write_file(url, data, options) {
   if(!/^(https?):\/\//.test(url) && window.cordova &&
      window.resolveLocalFileSystemURL) {
     return new Promise(function(resolve, reject) {
-      var parts = url.split(':')
-      var newurl, filename, dirname;
-      if(parts.length > 1 && parts[0] in cordova.file) {
-        newurl = cordova.file[parts[0]] + parts.slice(1).join(':');
-      } else {
-        newurl = cordova.file.applicationDirectory + "www/" + url;
-      }
-      parts = newurl.split('/');
-      filename = parts[parts.length - 1];
-      dirname = parts.slice(0, parts.length - 1).join("/");
+      url = _cordova_fix_url(url);
+      var parts = url.split('/'),
+          filename = parts[parts.length - 1],
+          dirname = parts.slice(0, parts.length - 1).join("/");
       function onEntry(dirEntry) {
         dirEntry.getFile(filename, { create: true }, function (fileEntry) {
           // Create a FileWriter object for our FileEntry
@@ -255,7 +242,7 @@ function write_file(url, data, options) {
 
             fileWriter.onerror = function(err) {
               console.error(err);
-              reject("Fail to write `" + newurl + "` -- " + err+'')
+              reject("Fail to write `" + url + "` -- " + err.message)
             };
 
             if(!(data instanceof Blob)) {
@@ -270,7 +257,7 @@ function write_file(url, data, options) {
       }
       function onFail(err) {
         console.error(err);
-        reject("Fail to write `" + newurl + "` -- " + err+'')
+        reject("Fail to write `" + url + "` -- " + err.message)
       }
       window.resolveLocalFileSystemURL(dirname, onEntry, onFail);
     });
@@ -283,18 +270,17 @@ function write_file(url, data, options) {
   }
 }
 
+function _cordova_fix_url(url) {
+  return ((/^[a-z]+:\/\//i).test(url) ?
+          '' : 'cdvfile://localhost/bundle/www/') + url;
+}
+
 function read_file(url, options) {
   return new Promise(function(resolve, reject) {
     options = options || {};
     if(!/^(https?):\/\//.test(url) && window.cordova &&
        window.resolveLocalFileSystemURL) {
-      var parts = url.split(':')
-      var newurl;
-      if(parts.length > 1 && parts[0] in cordova.file) {
-        newurl = cordova.file[parts[0]] + parts.slice(1).join(':');
-      } else {
-        newurl = cordova.file.applicationDirectory + "www/" + url;
-      }
+      url = _cordova_fix_url(url)
       function onSuccess(fileEntry) {
         fileEntry.file(function(file) {
           var reader = new FileReader();
@@ -309,9 +295,9 @@ function read_file(url, options) {
       }
       function onFail(err) {
         console.error(err);
-        reject("Fail to load `" + newurl + "` -- " + err+'')
+        reject("Fail to load `" + url + "` -- " + err.message)
       }
-      window.resolveLocalFileSystemURL(newurl, onSuccess, onFail);
+      window.resolveLocalFileSystemURL(url, onSuccess, onFail);
     } else {
       var xhr = new XMLHttpRequest();
       xhr.open(options.method || 'GET', url);
@@ -432,6 +418,10 @@ proto.simple_speak = function(speech, opts) {
 }
 
 proto.start_speaking = function(speech, opts) {
+  if(this._audio_tag) {
+    // prevent multiple audio running at same time
+    this.stop_audio()
+  }
   opts = Object.assign({}, opts)
   var self = this;
   if(self.is_native) {
@@ -460,8 +450,18 @@ proto.start_speaking = function(speech, opts) {
     delete opts.voiceId;
     // TODO:: control audio playback,
     // delay can be implemented if access to audio playback is at this level
+    var retobj = {};
+    function onend() {
+      if(retobj.onend)
+        retobj.onend.apply(this, arguments)
+      retobj.didend = true;
+    }
+    opts.onend = onend
+    // bugfix for responsiveVoice not calling onend
+    // when cancel called before speak
+    self.responsiveVoice.cancelled = false;
     self.responsiveVoice.speak(speech, voiceId, opts);
-    return Promise.resolve(1);
+    return Promise.resolve(retobj);
   }
 }
 
@@ -480,8 +480,16 @@ proto.speak_finish = function(utterance_hdl) {
   } else {
     var self = this;
     return new Promise(function(resolve, reject) {
-      var ref = [null, resolve];
-      self._alt_finish_queue.push(ref)
+      if(utterance_hdl.didend)
+        return resolve();
+      self._alt_finish_queue.push(resolve)
+      utterance_hdl.onend = function() {
+        var idx = self._alt_finish_queue.indexOf(resolve);
+        if(idx != -1)
+          self._alt_finish_queue.splice(idx, 1);
+        resolve();
+      }
+      /*
       function check() {
         ref[0] = setTimeout(function() {
           if(self.responsiveVoice.isPlaying())
@@ -495,26 +503,24 @@ proto.speak_finish = function(utterance_hdl) {
         }, 50); // check resolution
       }
       check();
+      */
     });
   }
 }
 
 proto.stop_speaking = function() {
-  var self = this
-  if(self.is_native) {
-    return self.api.stop_speaking(self.synthesizer);
-  } else {
-    responsiveVoice.cancel();
-    var call_list = [];
-    var ref;
-    var _alt_finish_queue = this._alt_finish_queue;
-    while((ref = _alt_finish_queue.pop())) {
-      clearTimeout(ref[0]);
-      call_list.push(ref[1]);
-    }
-    for(var i = 0, len = call_list.length; i < len; ++i)
-      call_list[i]();
+  if(this._audio_tag) {
+    this.stop_audio()
     return Promise.resolve();
+  } else {
+    if(this.is_native) {
+      return this.api.stop_speaking(this.synthesizer);
+    } else {
+      this.responsiveVoice.cancel();
+      while((resolve = this._alt_finish_queue.shift()))
+        resolve();
+      return Promise.resolve();
+    }
   }
 }
 
@@ -531,6 +537,94 @@ proto.get_voices = function() {
   }
 }
 
+proto._cordova_stop_audio = function() {
+  if(this._cordova_media) {
+    this._cordova_media.pause();
+    this._cordova_media = null;
+  }
+}
+
+proto._cordova_play_audio = function(src, opts) {
+  var self = this;
+  return new Promise(function(resolve, reject) {
+    self._cordova_stop_audio()
+    src = _cordova_fix_url(src)
+    var media = self._cordova_media = 
+        new Media(src,
+                  function() {
+                    resolve()
+                  },
+                  function(err) {
+                    reject("Error loading media: " + src +
+                           ", error: " + err.message);
+                  });
+    if(opts.volume)
+      media.setVolume(opts.volume)
+    media.play();
+  });
+  
+}
+
+proto.stop_audio = function() {
+  if(window.cordova && window.Media) {
+    // alternative approach
+    return this._cordova_stop_audio()
+  }
+  if(this._audio_tag) {
+    this._audio_tag.pause()
+    if(this._audio_tag.parentNode)
+      this._audio_tag.parentNode.removeChild(this._audio_tag);
+    if(this._audio_onstop_callback) {
+      this._audio_onstop_callback()
+      this._audio_onstop_callback = null
+    }
+    this._audio_tag = null
+  }
+}
+
+proto.play_audio = function(src, opts) {
+  if(window.cordova && window.Media) {
+    // alternative approach
+    return this._cordova_play_audio(src, opts)
+  }
+  var self = this;
+  self.stop_audio()
+  var audio = self._audio_tag = newEl('audio')
+  document.body.appendChild(audio)
+  return new Promise(function(resolve, reject) {
+    if(!audio.parentNode) {
+      // stopped
+      return resolve();
+    }
+    if(opts.volume)
+      audio.setAttribute('volume', opts.volume+'');
+    audio.setAttribute('preload', 'auto')
+    var src_el = newEl('source');
+    src_el.setAttribute('src', src)
+    audio.appendChild(src_el);
+    var stime = new Date().getTime()
+    audio.addEventListener('canplay', function() {
+      var diff = new Date().getTime() - stime;
+      if(diff >= opts.delay * 1000) {
+        audio.play()
+      } else {
+        setTimeout(function() {
+          audio.play()
+        }, opts.delay * 1000 - diff);
+      }
+    }, false);
+    audio.addEventListener('error', function() {
+      reject(audio.error);
+    }, false);
+    audio.addEventListener('ended', function() {
+      audio.pause()
+      if(audio.parentNode)
+        audio.parentNode.removeChild(audio);
+      resolve()
+    }, false);
+    self._audio_onstop_callback = resolve
+  });
+}
 
 function read_json(url, options) {
   return read_file(url, options)

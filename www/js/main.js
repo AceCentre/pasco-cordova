@@ -207,6 +207,7 @@ function start(_state) {
   function auto_next() {
     if(_state._stopped)
       return; // stop the loop
+    _state.auto_next_dead = false
     _state._active_timeout = setTimeout(function() {
       delete _state._active_timeout;
       var position = _get_current_position();
@@ -214,12 +215,6 @@ function start(_state) {
         // delay auto_next for next entry
         delayrun(config.auto_next_atfirst_delay)
       } else if(position.index + 1 == position.tree.nodes.length) {
-        // at re-cycle wait more
-        if(Math.abs(--_state._auto_next_rem_loops) < 1) {
-          // stop the loop
-          _state.auto_next_dead = true
-          return;
-        }
         delayrun(config.auto_next_recycle_delay || 0)
       } else {
         run()
@@ -232,6 +227,15 @@ function start(_state) {
       if(_state._running_move != null) {
         _state._running_move.then(auto_next);
       } else {
+        var position = _get_current_position();
+        if(position.index + 1 == position.tree.nodes.length) {
+          // at re-cycle
+          if(Math.abs(--_state._auto_next_rem_loops) < 1) {
+            // stop the loop
+            _state.auto_next_dead = true
+            return;
+          }
+        }
         _tree_go_next()
           .then(auto_next)
           .catch(handle_error);
@@ -778,21 +782,43 @@ function _move_sub_speak(text, voice_options) {
   if(state.silent_mode) {
     return Promise.resolve();
   }
-  return speaku.start_speaking(text, voice_options)
-    .then(function(hdl) {
-      return speaku.speak_finish(hdl)
-        .then(function() {
-          return speaku.utterance_release(hdl);
-        });
-    });
+  if(this.meta['audio']) {
+    return speaku.play_audio(this.meta['audio'], voice_options)
+  } else {
+    return speaku.simple_speak(text, voice_options);
+  }
+}
+
+function _move_sub_speak2(type) {
+  if(state.silent_mode) {
+    return Promise.resolve();
+  }
+  var opts, audio, text;
+  switch(type) {
+  case 'cue':
+    opts = (config.mode == 'auto' && is_first_run() ? config.auditory_cue_first_run_voice_options : null) || config.auditory_cue_voice_options;
+    audio = this.meta['cue-audio'] || this.meta['audio'];
+    text = _node_cue_text(this);
+    break;
+  case 'main':
+    opts = config.auditory_main_voice_options;
+    audio = this.meta['main-audio'] || this.meta['audio'];
+    text = this.text;
+    break;
+  }
+  if(audio) {
+    return speaku.play_audio(audio, opts)
+  } else if(text) {
+    return speaku.simple_speak(text, opts);
+  }
+  return Promise.resolve();
 }
 
 function _scan_move(node) {
   node = node || _get_current_node();
   var moveobj = _new_move_init(node)
   moveobj.steps.push(_move_sub_highlight.bind(node))
-  var opts = (config.mode == 'auto' && is_first_run() ? config.auditory_cue_first_run_voice_options : null) || config.auditory_cue_voice_options;
-  moveobj.steps.push(_move_sub_speak.bind(node, _node_cue_text(node), opts))
+  moveobj.steps.push(_move_sub_speak2.bind(node, 'cue'))
   _before_new_move();
   moveobj.node.dom_element.dispatchEvent(new CustomEvent("x-new-move", {
     detail: {
@@ -804,7 +830,7 @@ function _scan_move(node) {
 
 function _notify_move(node, notifynode, delay) {
   var moveobj = _new_move_init(node || notifynode)
-  moveobj.steps.push(_move_sub_speak.bind(notifynode, notifynode.text, config.auditory_main_voice_options))
+  moveobj.steps.push(_move_sub_speak2.bind(notifynode, 'main'))
   if(node) {
     moveobj.steps.push(function() {
       _before_new_move()
@@ -823,8 +849,7 @@ function _notify_move(node, notifynode, delay) {
   }
   moveobj.steps.push(un_can_move)
   if(node) {
-    var opts = (config.mode == 'auto' && is_first_run() ? config.auditory_cue_first_run_voice_options : null) || config.auditory_cue_voice_options;
-    moveobj.steps.push(_move_sub_speak.bind(node, _node_cue_text(node), opts))
+    moveobj.steps.push(_move_sub_speak2.bind(node, 'cue'))
   }
   speaku.stop_speaking();
   state.can_move = false;
@@ -949,12 +974,8 @@ function _tree_go_in() {
       delete tmp[2]._continue_concat;
     }
     // speak it
-    return speaku.start_speaking(atree.text, config.auditory_main_voice_options)
-      .then(function(hdl) {
-        return speaku.speak_finish(hdl).then(function() {
-          return speaku.utterance_release(hdl);
-        });
-      })
+    return _move_sub_speak2
+      .call(atree, 'main')
       .then(function() {
         // start again, on demand
         function finish() {
@@ -965,7 +986,7 @@ function _tree_go_in() {
               popup.classList.add('hide');
             }, 500); // wait for hide transition 
           }
-          renew_state(state)
+          _clean_state()
           start(); // start over
         }
         function clear() {
@@ -1034,8 +1055,13 @@ function _tree_go_previous() {
   var position = _get_current_position();
   position.index -= 1;
   if(position.index < 0) {
+    /*
     position.index = (position.tree.nodes.length + position.index) %
       position.tree.nodes.length;
+    */
+    if(position.tree.nodes.length == 0)
+      return Promise.resolve();
+    position.index = position.tree.nodes.length - 1;
   }
   return _scan_move()
 }
@@ -1177,7 +1203,7 @@ function _tree_to_markdown_subrout_meta_html(anode) {
   for(var key in anode.meta) {
     if(anode.meta.hasOwnProperty(key) &&
        (!auditory_cue_in_text || key != 'auditory-cue')) {
-      tmp_meta.setAttribute(key, anode.meta[key]);
+      tmp_meta.setAttribute('data-' + key, anode.meta[key]);
       len++;
     }
   }
@@ -1192,7 +1218,8 @@ function _tree_to_markdown_subrout_node(node, level, md_lines) {
   var auditory_cue_in_text = node._more_meta['auditory-cue-in-text'],
       text = level > 0 ?
              (node.text +
-              (auditory_cue_in_text ? node.meta['auditory-cue'] : '')) : null,
+              (auditory_cue_in_text ?
+               '('+node.meta['auditory-cue']+')' : '')) : null,
       meta_html = _tree_to_markdown_subrout_meta_html(node);
   md_lines.push((text != null ? '#'.repeat(level) + ' ' + text : '') +
                 (meta_html ? ' ' + meta_html : ''))
