@@ -11,6 +11,8 @@
 !bootstrap/dist/css
 !bootstrap/dist/css/bootstrap.min.css
 !bootstrap/dist/js/bootstrap.min.js
+!bootstrap/dist/fonts
+!bootstrap/dist/fonts/*
 !jquery/
 !jquery/dist/
 !jquery/dist/jquery.min.js
