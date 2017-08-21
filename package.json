@@ -25,7 +25,9 @@
             "cordova-plugin-file": {},
             "audscan-cordova-plugin": {},
             "cordova-plugin-device": {},
-            "cordova-plugin-media": {}
+            "cordova-plugin-media": {
+                "MICROPHONE_USAGE_DESCRIPTION": "pacso records voice for future playback"
+            }
         },
         "platforms": [
             "ios"
